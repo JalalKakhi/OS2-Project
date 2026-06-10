@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OS2 Monitoring Architecture</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel-2: #1f2937;
+      --line: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --green: #22c55e;
+      --cyan: #38bdf8;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --violet: #a78bfa;
+      --radius: 8px;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.32);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(13, 17, 23, 0.95), rgba(13, 17, 23, 1)),
+        radial-gradient(circle at 25% 12%, rgba(56, 189, 248, 0.12), transparent 28%),
+        radial-gradient(circle at 75% 0%, rgba(34, 197, 94, 0.10), transparent 24%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #38bdf8, #22c55e);
+      color: #07111f;
+      font-weight: 900;
+      box-shadow: 0 12px 30px rgba(56, 189, 248, 0.20);
+      flex: 0 0 auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 38px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 14px;
+    }
+
+    .status-pill {
+      border: 1px solid rgba(34, 197, 94, 0.35);
+      color: #bbf7d0;
+      background: rgba(34, 197, 94, 0.10);
+      border-radius: 999px;
+      padding: 8px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.8);
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      70% {
+        box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+      }
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .stage,
+    .details,
+    .scenarios {
+      background: rgba(22, 27, 34, 0.86);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .stage {
+      padding: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 92%);
+      pointer-events: none;
+    }
+
+    .flow {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(170px, 1fr));
+      gap: 44px 34px;
+      min-height: 520px;
+      z-index: 1;
+    }
+
+    .node {
+      position: relative;
+      min-height: 128px;
+      border: 1px solid rgba(148, 163, 184, 0.20);
+      background: rgba(15, 23, 42, 0.88);
+      border-radius: var(--radius);
+      padding: 16px;
+      cursor: pointer;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      outline: none;
+    }
+
+    .node:hover,
+    .node.active {
+      transform: translateY(-3px);
+      border-color: rgba(56, 189, 248, 0.70);
+      background: rgba(30, 41, 59, 0.92);
+    }
+
+    .node.active {
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.18), 0 18px 40px rgba(56, 189, 248, 0.12);
+    }
+
+    .node .icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 12px;
+      color: #06121f;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .client .icon { background: var(--cyan); }
+    .nginx .icon { background: var(--green); }
+    .apps .icon { background: #60a5fa; }
+    .volume .icon { background: var(--amber); }
+    .classifier .icon { background: var(--violet); }
+    .monitor .icon { background: #f97316; }
+
+    .node h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .node small {
+      display: inline-flex;
+      margin-top: 12px;
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.20);
+      border-radius: 999px;
+      padding: 5px 8px;
+      background: rgba(148, 163, 184, 0.08);
+    }
+
+    .connector {
+      position: absolute;
+      height: 3px;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.15), rgba(56, 189, 248, 0.85), rgba(34, 197, 94, 0.85));
+      transform-origin: left center;
+      border-radius: 999px;
+      opacity: 0.72;
+      overflow: hidden;
+      z-index: 0;
+    }
+
+    .connector::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 80px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75), transparent);
+      animation: travel 2.6s linear infinite;
+    }
+
+    @keyframes travel {
+      from { left: -80px; }
+      to { left: 100%; }
+    }
+
+    .details {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      min-height: 520px;
+    }
+
+    .details h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+
+    .details p {
+      color: var(--muted);
+      line-height: 1.55;
+      margin: 0 0 14px;
+    }
+
+    .facts {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .fact {
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(15, 23, 42, 0.76);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+
+    .fact b {
+      display: block;
+      margin-bottom: 4px;
+      color: #e2e8f0;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .metrics {
+      margin-top: auto;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .metric {
+      border-radius: var(--radius);
+      padding: 12px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      min-width: 0;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scenarios {
+      margin-top: 18px;
+      padding: 18px;
+    }
+
+    .scenario-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .scenario-head h2 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .scenario-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: #111827;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: background 160ms ease, transform 160ms ease, border-color 160ms ease;
+    }
+
+    .btn:hover,
+    .btn.active {
+      transform: translateY(-1px);
+      background: #1f2937;
+      border-color: rgba(56, 189, 248, 0.62);
+    }
+
+    .scenario-box {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .terminal {
+      background: #020617;
+      border: 1px solid rgba(148, 163, 184, 0.20);
+      border-radius: var(--radius);
+      padding: 14px;
+      overflow: hidden;
+      min-height: 190px;
+    }
+
+    .dots {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #475569;
+    }
+
+    .dots span:nth-child(1) { background: #ef4444; }
+    .dots span:nth-child(2) { background: #f59e0b; }
+    .dots span:nth-child(3) { background: #22c55e; }
+
+    pre {
+      margin: 0;
+      color: #d1fae5;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      font-size: 13px;
+    }
+
+    .bars {
+      display: grid;
+      gap: 12px;
+      align-content: center;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: rgba(15, 23, 42, 0.72);
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 86px 1fr 44px;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.16);
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      width: var(--value);
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      border-radius: inherit;
+      transition: width 360ms ease;
+    }
+
+    .bar.red i {
+      background: linear-gradient(90deg, var(--amber), var(--red));
+    }
+
+    .bar.violet i {
+      background: linear-gradient(90deg, var(--cyan), var(--violet));
+    }
+
+    @media (max-width: 980px) {
+      .layout,
+      .scenario-box {
+        grid-template-columns: 1fr;
+      }
+
+      .details {
+        min-height: auto;
+      }
+
+      .flow {
+        grid-template-columns: 1fr;
+        min-height: auto;
+        gap: 14px;
+      }
+
+      .connector {
+        display: none;
+      }
+
+      .topbar,
+      .scenario-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">OS2</div>
+        <div>
+          <h1>Nginx Security Monitoring Pipeline</h1>
+          <div class="subtitle">Reverse proxy, rate limiting, rule-based log classification, Prometheus, Grafana, and cAdvisor.</div>
+        </div>
+      </div>
+      <div class="status-pill"><span class="pulse"></span>Demo architecture ready</div>
+    </header>
+
+    <section class="layout">
+      <div class="stage" id="stage">
+        <div class="flow" id="flow">
+          <button class="node client active" data-node="client">
+            <div class="icon">01</div>
+            <h2>Traffic Generator</h2>
+            <p>Python threads send concurrent requests to the proxy.</p>
+            <small>urllib + workers</small>
+          </button>
+
+          <button class="node nginx" data-node="nginx">
+            <div class="icon">02</div>
+            <h2>Nginx Proxy</h2>
+            <p>Terminates HTTP/HTTPS, load balances, and rate limits.</p>
+            <small>5r/s + burst 10</small>
+          </button>
+
+          <button class="node apps" data-node="apps">
+            <div class="icon">03</div>
+            <h2>Flask Web Apps</h2>
+            <p>Two backend containers receive round-robin traffic.</p>
+            <small>web-app-1 / web-app-2</small>
+          </button>
+
+          <button class="node volume" data-node="volume">
+            <div class="icon">04</div>
+            <h2>Shared Log Volume</h2>
+            <p>Nginx writes JSON access logs to a Docker volume.</p>
+            <small>nginx-logs</small>
+          </button>
+
+          <button class="node classifier" data-node="classifier">
+            <div class="icon">05</div>
+            <h2>Rule Classifier</h2>
+            <p>Python tails logs and increments Prometheus counters.</p>
+            <small>port 8000</small>
+          </button>
+
+          <button class="node monitor" data-node="monitor">
+            <div class="icon">06</div>
+            <h2>Prometheus + Grafana</h2>
+            <p>Metrics are scraped, queried, and visualized live.</p>
+            <small>9090 / 3000</small>
+          </button>
+        </div>
+      </div>
+
+      <aside class="details">
+        <h2 id="detailTitle">Traffic Generator</h2>
+        <p id="detailText">The demo starts with controlled traffic from traffic_generator.py. It creates concurrent requests so Nginx can return HTTP 429 when the rate limit is exceeded.</p>
+        <div class="facts" id="facts"></div>
+        <div class="metrics">
+          <div class="metric">
+            <strong id="ddosMetric">429</strong>
+            <span>DDoS signal</span>
+          </div>
+          <div class="metric">
+            <strong id="securityMetric">401</strong>
+            <span>Security signal</span>
+          </div>
+          <div class="metric">
+            <strong id="opsMetric">500</strong>
+            <span>Ops signal</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="scenarios">
+      <div class="scenario-head">
+        <h2>Interactive Demo Scenarios</h2>
+        <div class="scenario-actions">
+          <button class="btn active" data-scenario="normal">Normal Traffic</button>
+          <button class="btn" data-scenario="ddos">DDoS Simulation</button>
+          <button class="btn" data-scenario="security">Security Events</button>
+          <button class="btn" data-scenario="ops">Operational Error</button>
+        </div>
+      </div>
+
+      <div class="scenario-box">
+        <div class="terminal">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <pre id="terminalText"></pre>
+        </div>
+        <div class="bars">
+          <div class="bar-row">
+            <span>Requests</span>
+            <div class="bar"><i id="barRequests" style="--value: 35%"></i></div>
+            <span id="reqValue">35%</span>
+          </div>
+          <div class="bar-row">
+            <span>HTTP 429</span>
+            <div class="bar red"><i id="bar429" style="--value: 0%"></i></div>
+            <span id="rateValue">0%</span>
+          </div>
+          <div class="bar-row">
+            <span>Alerts</span>
+            <div class="bar violet"><i id="barAlerts" style="--value: 10%"></i></div>
+            <span id="alertValue">10%</span>
+          </div>
+          <div class="bar-row">
+            <span>Monitoring</span>
+            <div class="bar"><i id="barMonitoring" style="--value: 70%"></i></div>
+            <span id="monValue">70%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const nodeData = {
+      client: {
+        title: "Traffic Generator",
+        text: "traffic_generator.py creates concurrent HTTP requests. During a demo, this is how we intentionally push Nginx above 5 requests per second and prove that rate limiting works.",
+        facts: [
+          ["Input", "http://localhost/ through Nginx"],
+          ["Demo Command", "python traffic_generator.py --requests 200 --workers 50"],
+          ["Success Condition", "The script reports HTTP 429 responses"]
+        ],
+        metrics: ["429", "401", "500"]
+      },
+      nginx: {
+        title: "Nginx Reverse Proxy",
+        text: "Nginx is the front door. It serves HTTP and HTTPS, forwards requests to Flask, writes JSON logs, and returns HTTP 429 when one client exceeds the configured rate limit.",
+        facts: [
+          ["Rate Limit", "limit_req_zone rate=5r/s with burst=10 nodelay"],
+          ["Load Balancing", "Default round-robin between web-app-1 and web-app-2"],
+          ["SSL", "Uses ./certs/server.crt and ./certs/server.key"]
+        ],
+        metrics: ["5r/s", "2 apps", "443"]
+      },
+      apps: {
+        title: "Flask Web Apps",
+        text: "Two Flask containers represent replicated backend services. Normal requests return app identity and hostname, which makes load balancing easy to demonstrate.",
+        facts: [
+          ["Service 1", "os2-web-app-1"],
+          ["Service 2", "os2-web-app-2"],
+          ["Error Route", "/error returns HTTP 500 for classifier testing"]
+        ],
+        metrics: ["2", "5000", "/error"]
+      },
+      volume: {
+        title: "Shared Log Volume",
+        text: "Nginx writes access.log to the nginx-logs named Docker volume. The classifier mounts the same volume read-only, keeping log collection simple and isolated.",
+        facts: [
+          ["Writer", "Nginx writes /var/log/nginx/access.log"],
+          ["Reader", "Classifier mounts /var/log/nginx as read-only"],
+          ["Format", "Each access log line is JSON"]
+        ],
+        metrics: ["JSON", "RO", "RW"]
+      },
+      classifier: {
+        title: "Rule-Based Classifier",
+        text: "The classifier tails Nginx logs, extracts status codes, and increments explicit Prometheus counters. It also reopens the file when Nginx recreates or truncates the log.",
+        facts: [
+          ["DDoS Rule", "HTTP 429 increments nginx_ddos_traffic_total"],
+          ["Security Rule", "HTTP 401/403 increments nginx_security_alerts_total"],
+          ["Ops Rule", "HTTP 500+ increments nginx_operational_errors_total"]
+        ],
+        metrics: ["8000", "inode", "rules"]
+      },
+      monitor: {
+        title: "Prometheus and Grafana",
+        text: "Prometheus scrapes classifier metrics every 5 seconds and also scrapes cAdvisor. Grafana imports dashboard.json to show security, DDoS, error, CPU, and memory panels.",
+        facts: [
+          ["Prometheus", "Scrapes log-classifier:8000 and cadvisor:8080"],
+          ["Grafana", "Imports dashboard.json with Prometheus data source"],
+          ["Demo Delay", "Wait 5 to 10 seconds after generating traffic"]
+        ],
+        metrics: ["9090", "3000", "5s"]
+      }
+    };
+
+    const scenarioData = {
+      normal: {
+        text: "$ curl http://localhost/\n{\"app\":\"web-app-1\",\"host\":\"...\"}\n\n$ curl http://localhost/\n{\"app\":\"web-app-2\",\"host\":\"...\"}\n\nResult: Nginx distributes traffic across both Flask apps.",
+        values: [35, 0, 10, 70]
+      },
+      ddos: {
+        text: "$ python traffic_generator.py --requests 200 --workers 50\nStatus code counts:\n200: 18\n429: 182\nSUCCESS: DDoS simulation triggered Nginx rate limiting.\n\nPrometheus metric: nginx_ddos_traffic_total increases.",
+        values: [98, 92, 40, 88]
+      },
+      security: {
+        text: "$ curl http://localhost/unauthorized\nHTTP/1.1 401 Unauthorized\n\n$ curl http://localhost/forbidden\nHTTP/1.1 403 Forbidden\n\nPrometheus metric: nginx_security_alerts_total increases.",
+        values: [42, 0, 76, 82]
+      },
+      ops: {
+        text: "$ curl http://localhost/error\nHTTP/1.1 500 Internal Server Error\n\nClassifier rule: status >= 500\nPrometheus metric: nginx_operational_errors_total increases.",
+        values: [40, 0, 55, 84]
+      }
+    };
+
+    const facts = document.getElementById("facts");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailText = document.getElementById("detailText");
+    const ddosMetric = document.getElementById("ddosMetric");
+    const securityMetric = document.getElementById("securityMetric");
+    const opsMetric = document.getElementById("opsMetric");
+
+    function renderNode(name) {
+      const data = nodeData[name];
+      detailTitle.textContent = data.title;
+      detailText.textContent = data.text;
+      ddosMetric.textContent = data.metrics[0];
+      securityMetric.textContent = data.metrics[1];
+      opsMetric.textContent = data.metrics[2];
+      facts.innerHTML = data.facts.map(([label, value]) => (
+        `<div class="fact"><b>${label}</b><span>${value}</span></div>`
+      )).join("");
+    }
+
+    document.querySelectorAll(".node").forEach((node) => {
+      node.addEventListener("click", () => {
+        document.querySelectorAll(".node").forEach((item) => item.classList.remove("active"));
+        node.classList.add("active");
+        renderNode(node.dataset.node);
+      });
+    });
+
+    function setScenario(name) {
+      const data = scenarioData[name];
+      const [requests, rate, alerts, monitoring] = data.values;
+      document.getElementById("terminalText").textContent = data.text;
+      updateBar("barRequests", "reqValue", requests);
+      updateBar("bar429", "rateValue", rate);
+      updateBar("barAlerts", "alertValue", alerts);
+      updateBar("barMonitoring", "monValue", monitoring);
+    }
+
+    function updateBar(barId, labelId, value) {
+      document.getElementById(barId).style.setProperty("--value", `${value}%`);
+      document.getElementById(labelId).textContent = `${value}%`;
+    }
+
+    document.querySelectorAll(".btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".btn").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+        setScenario(button.dataset.scenario);
+      });
+    });
+
+    function drawConnectors() {
+      document.querySelectorAll(".connector").forEach((item) => item.remove());
+      if (window.innerWidth <= 980) return;
+
+      const stage = document.getElementById("stage");
+      const stageBox = stage.getBoundingClientRect();
+      const pairs = [
+        ["client", "nginx"],
+        ["nginx", "apps"],
+        ["nginx", "volume"],
+        ["volume", "classifier"],
+        ["classifier", "monitor"]
+      ];
+
+      pairs.forEach(([from, to]) => {
+        const a = document.querySelector(`[data-node="${from}"]`).getBoundingClientRect();
+        const b = document.querySelector(`[data-node="${to}"]`).getBoundingClientRect();
+        const x1 = a.left + a.width / 2 - stageBox.left;
+        const y1 = a.top + a.height / 2 - stageBox.top;
+        const x2 = b.left + b.width / 2 - stageBox.left;
+        const y2 = b.top + b.height / 2 - stageBox.top;
+        const length = Math.hypot(x2 - x1, y2 - y1);
+        const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+        const line = document.createElement("div");
+        line.className = "connector";
+        line.style.width = `${length}px`;
+        line.style.left = `${x1}px`;
+        line.style.top = `${y1}px`;
+        line.style.transform = `rotate(${angle}deg)`;
+        stage.appendChild(line);
+      });
+    }
+
+    renderNode("client");
+    setScenario("normal");
+    window.addEventListener("load", drawConnectors);
+    window.addEventListener("resize", drawConnectors);
+  </script>
+</body>
+</html>

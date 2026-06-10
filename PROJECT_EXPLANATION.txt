@@ -1,0 +1,194 @@
+OS2 Project Explanation
+=======================
+
+Project Goal
+------------
+This project demonstrates a simple DevOps and monitoring pipeline for an Operating Systems assignment. The system uses Docker Compose to run a small web architecture with reverse proxying, load balancing, rate limiting, log classification, metrics collection, and dashboard visualization.
+
+The architecture is intentionally simple and explainable:
+
+Traffic Generator -> Nginx Reverse Proxy -> Flask Web Apps
+                                |
+                                v
+                         Shared Nginx Log Volume
+                                |
+                                v
+                  Rule-Based Python Log Classifier
+                                |
+                                v
+                           Prometheus Metrics
+                                |
+                                v
+                           Grafana Dashboard
+
+
+Main Components
+---------------
+1. Nginx Reverse Proxy
+
+Nginx is the entry point for all client traffic. It listens on HTTP port 80 and HTTPS port 443. The HTTPS server uses a self-signed certificate stored in ./certs/server.crt and ./certs/server.key. These files are mounted into the container as read-only files.
+
+Nginx forwards normal requests to two Flask application containers using an upstream block:
+
+- web-app-1:5000
+- web-app-2:5000
+
+Because both servers are listed in the upstream group without a special balancing method, Nginx uses its default round-robin load balancing. This means requests are distributed between the two Flask apps, demonstrating basic load balancing.
+
+
+2. Rate Limiting and DDoS Simulation
+
+The Nginx configuration defines a rate-limit zone:
+
+limit_req_zone $binary_remote_addr zone=per_ip:10m rate=5r/s;
+
+This means each client IP address is allowed around 5 requests per second. In the main location block, Nginx applies:
+
+limit_req zone=per_ip burst=10 nodelay;
+limit_req_status 429;
+
+The burst value allows short spikes, but once the limit and burst are exceeded, Nginx immediately returns HTTP 429 Too Many Requests. This is used as the project's simulated DDoS indicator.
+
+The traffic_generator.py script creates many concurrent HTTP requests using Python threads. When the traffic exceeds the Nginx rate limit, Nginx returns 429 responses. The script prints the status-code counts and clearly reports whether the simulation successfully triggered rate limiting.
+
+
+3. Flask Web Applications
+
+There are two identical Flask web app containers. Each container returns its configured APP_NAME and hostname for normal requests. This makes it easy to show that Nginx is load balancing between two backend services.
+
+The Flask app also exposes a test /error route that returns HTTP 500. This is useful for demonstrating operational error classification.
+
+
+4. JSON Access Logs
+
+Nginx writes access logs in JSON format to:
+
+/var/log/nginx/access.log
+
+This log file is stored in a named Docker volume called nginx-logs. The Nginx container writes to the volume, and the log-classifier container mounts the same volume as read-only.
+
+JSON logging makes the classifier reliable and easy to explain. Instead of parsing unstructured log text, the classifier reads each log line as JSON and extracts the HTTP status code.
+
+
+5. Rule-Based Log Classifier
+
+classifier.py is a simple Python service that starts a Prometheus metrics server on port 8000. It tails the shared Nginx access log and applies explicit rules:
+
+- HTTP 429 increments nginx_ddos_traffic_total
+- HTTP 401 or 403 increments nginx_security_alerts_total
+- HTTP 500 and above increments nginx_operational_errors_total
+- Each successfully parsed log line increments nginx_log_lines_parsed_total
+
+This is intentionally rule-based. There is no machine learning, training data, or complex dependency. For a university OS2 project, this keeps the logic transparent and easy to defend during a live demo.
+
+
+6. Handling Log Recreation Safely
+
+The classifier is designed to keep working if the Nginx log file is recreated or truncated. This can happen when the Nginx container restarts, because the Compose command removes and recreates access.log and error.log before starting Nginx.
+
+To avoid silently following an old deleted file, the classifier tracks the current log file inode. During its loop, it checks:
+
+- whether the inode changed
+- whether the file size became smaller than the current read position
+- whether the file temporarily disappeared
+
+If any of these happen, the classifier closes the old file handle, waits for the log file if needed, and reopens the current access.log. This makes the demo more robust without adding enterprise-level complexity.
+
+
+7. Prometheus Scraping
+
+Prometheus runs on port 9090. The prometheus.yml file defines a scrape interval of 5 seconds and scrapes:
+
+- log-classifier:8000 for custom Nginx security and operational metrics
+- cadvisor:8080 for container metrics
+
+The classifier exposes metrics in the Prometheus text format. Prometheus periodically scrapes those values and stores them as time-series data.
+
+Important demo note: because Prometheus scrapes every 5 seconds, new traffic may not appear instantly. After running the traffic generator, wait around 5 to 10 seconds before checking Grafana or Prometheus.
+
+
+8. cAdvisor Container Metrics
+
+cAdvisor collects resource metrics from Docker containers. Prometheus scrapes cAdvisor and can query metrics such as CPU usage and memory usage for the Nginx container.
+
+The Grafana dashboard includes a container metrics panel for os2-nginx using cAdvisor metrics. This shows that the project monitors both application/security events and system/container resource behavior.
+
+
+9. Grafana Dashboard
+
+Grafana runs on port 3000 with the default demo credentials:
+
+Username: admin
+Password: admin
+
+The dashboard.json file can be imported into Grafana. It expects a Prometheus data source named Prometheus.
+
+The dashboard contains:
+
+- DDoS Traffic panel using nginx_ddos_traffic_total
+- Security Alerts panel using nginx_security_alerts_total
+- Operational Errors panel using nginx_operational_errors_total
+- Nginx container CPU and memory panel using cAdvisor metrics
+
+
+Live Demo Flow
+--------------
+1. Start the stack:
+
+docker compose up --build
+
+2. Open the normal app:
+
+http://localhost/
+
+Refresh several times and show that responses come from both web-app-1 and web-app-2.
+
+3. Trigger security alert examples:
+
+http://localhost/unauthorized
+http://localhost/forbidden
+
+These produce HTTP 401 and 403, which increment nginx_security_alerts_total.
+
+4. Trigger operational error:
+
+http://localhost/error
+
+This produces HTTP 500, which increments nginx_operational_errors_total.
+
+5. Trigger DDoS/rate-limit simulation:
+
+python traffic_generator.py --requests 200 --workers 50
+
+The script should report HTTP 429 responses if the rate limit was triggered.
+
+6. Wait 5 to 10 seconds, then open:
+
+Prometheus: http://localhost:9090
+Grafana: http://localhost:3000
+
+Useful PromQL queries:
+
+nginx_ddos_traffic_total
+increase(nginx_ddos_traffic_total[1m])
+nginx_security_alerts_total
+nginx_operational_errors_total
+
+
+Why This Design Is Appropriate
+------------------------------
+The project avoids unnecessary production complexity while still demonstrating important DevOps and OS concepts:
+
+- containerized services
+- reverse proxying
+- load balancing
+- rate limiting
+- shared Docker volumes
+- log processing
+- process resilience using restart policies
+- metrics exposure
+- Prometheus scraping
+- Grafana visualization
+- container monitoring with cAdvisor
+
+The design is small enough to explain clearly, but complete enough to show a working monitoring and incident-detection pipeline.

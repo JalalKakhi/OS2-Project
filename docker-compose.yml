@@ -1,0 +1,92 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: os2-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - nginx-logs:/var/log/nginx
+    command: >
+      sh -c "rm -f /var/log/nginx/access.log /var/log/nginx/error.log &&
+             touch /var/log/nginx/access.log /var/log/nginx/error.log &&
+             nginx -g 'daemon off;'"
+    depends_on:
+      - web-app-1
+      - web-app-2
+
+  web-app-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: os2-web-app-1
+    restart: unless-stopped
+    environment:
+      - APP_NAME=web-app-1
+
+  web-app-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: os2-web-app-2
+    restart: unless-stopped
+    environment:
+      - APP_NAME=web-app-2
+
+  log-classifier:
+    build:
+      context: .
+      dockerfile: Dockerfile.classifier
+    container_name: os2-log-classifier
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - nginx-logs:/var/log/nginx:ro
+    depends_on:
+      - nginx
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: os2-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - log-classifier
+      - cadvisor
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: os2-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: os2-cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+volumes:
+  nginx-logs:
