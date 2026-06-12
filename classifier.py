@@ -4,15 +4,15 @@ import re
 import time
 from prometheus_client import Counter, start_http_server
 
-LOG_FILE = os.getenv("NGINX_ACCESS_LOG", "/var/log/nginx/access.log")
+LOG_FILE = os.getenv("APACHE_ACCESS_LOG", "/var/log/apache2/access.log")
 STATUS_RE = re.compile(r'"\s(?P<status>\d{3})\s')
 
 # Rule-based counters. No ML or training is used: each metric is incremented
-# only when a parsed Nginx status code matches the explicit rule below.
-OPERATIONAL_ERRORS = Counter("nginx_operational_errors_total", "HTTP 500 responses")
-SECURITY_ALERTS = Counter("nginx_security_alerts_total", "HTTP 401/403 responses")
-DDOS_TRAFFIC = Counter("nginx_ddos_traffic_total", "HTTP 429 responses from rate limiting")
-PARSED_LINES = Counter("nginx_log_lines_parsed_total", "Nginx access log lines parsed")
+# only when a parsed Apache status code matches the explicit rule below.
+OPERATIONAL_ERRORS = Counter("apache_operational_errors_total", "HTTP 500 responses")
+SECURITY_ALERTS = Counter("apache_security_alerts_total", "HTTP 401/403 responses")
+DDOS_TRAFFIC = Counter("apache_ddos_traffic_total", "HTTP 429 responses from rate limiting")
+PARSED_LINES = Counter("apache_log_lines_parsed_total", "Apache access log lines parsed")
 
 
 def classify(status):
@@ -30,7 +30,7 @@ def parse_status(line):
         return int(entry.get("status", 0))
     except (ValueError, json.JSONDecodeError):
         # Fallback regex keeps the classifier rule-based even if the log format
-        # changes to a common Nginx access-log style.
+        # changes to a common Apache access-log style.
         match = STATUS_RE.search(line)
         return int(match.group("status")) if match else 0
 

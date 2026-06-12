@@ -1,19 +1,22 @@
 services:
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: os2-nginx
+  apache:
+    build:
+      context: .
+      dockerfile: Dockerfile.apache
+    container_name: os2-apache
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-      - nginx-logs:/var/log/nginx
+      - ./apache.conf:/etc/apache2/sites-available/os2-proxy.conf:ro
+      - ./certs:/etc/apache2/certs:ro
+      - apache-logs:/var/log/apache2
     command: >
-      sh -c "rm -f /var/log/nginx/access.log /var/log/nginx/error.log &&
-             touch /var/log/nginx/access.log /var/log/nginx/error.log &&
-             nginx -g 'daemon off;'"
+      sh -c "mkdir -p /var/run/apache2 &&
+             rm -f /var/run/apache2/apache2.pid /var/log/apache2/access.log /var/log/apache2/error.log &&
+             touch /var/log/apache2/access.log /var/log/apache2/error.log &&
+             apache2ctl -D FOREGROUND"
     depends_on:
       - web-app-1
       - web-app-2
@@ -45,9 +48,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - nginx-logs:/var/log/nginx:ro
+      - apache-logs:/var/log/apache2:ro
     depends_on:
-      - nginx
+      - apache
 
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -89,4 +92,4 @@ services:
       - /dev/kmsg
 
 volumes:
-  nginx-logs:
+  apache-logs:

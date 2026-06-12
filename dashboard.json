@@ -157,7 +157,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nginx_ddos_traffic_total",
+          "expr": "apache_ddos_traffic_total",
           "legendFormat": "Total 429 responses",
           "range": true,
           "refId": "A"
@@ -168,13 +168,13 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "increase(nginx_ddos_traffic_total[1m])",
+          "expr": "increase(apache_ddos_traffic_total[1m])",
           "legendFormat": "429 responses in last 1m",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "DDoS Traffic - Nginx HTTP 429 Rate Limit Events",
+      "title": "DDoS Traffic - Apache HTTP 429 Rate Limit Events",
       "type": "timeseries"
     },
     {
@@ -241,7 +241,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nginx_security_alerts_total",
+          "expr": "apache_security_alerts_total",
           "legendFormat": "401/403 security alerts",
           "range": true,
           "refId": "A"
@@ -314,7 +314,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nginx_operational_errors_total",
+          "expr": "apache_operational_errors_total",
           "legendFormat": "HTTP 500+ errors",
           "range": true,
           "refId": "A"
@@ -380,7 +380,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Nginx memory usage"
+              "options": "Apache memory usage"
             },
             "properties": [
               {
@@ -392,7 +392,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Nginx CPU cores"
+              "options": "Apache CPU cores"
             },
             "properties": [
               {
@@ -432,8 +432,8 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\".*os2-nginx.*\"}[1m]))",
-          "legendFormat": "Nginx CPU cores",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\".*os2-apache.*\"}[1m]))",
+          "legendFormat": "Apache CPU cores",
           "range": true,
           "refId": "A"
         },
@@ -443,13 +443,13 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(container_memory_usage_bytes{name=~\".*os2-nginx.*\"})",
-          "legendFormat": "Nginx memory usage",
+          "expr": "sum(container_memory_usage_bytes{name=~\".*os2-apache.*\"})",
+          "legendFormat": "Apache memory usage",
           "range": true,
           "refId": "B"
         }
       ],
-      "title": "Container Metrics - os2-nginx via cAdvisor",
+      "title": "Container Metrics - os2-apache via cAdvisor",
       "type": "timeseries"
     }
   ],
@@ -457,7 +457,7 @@
   "schemaVersion": 40,
   "tags": [
     "os2",
-    "nginx",
+    "apache",
     "prometheus",
     "cadvisor",
     "university-demo"
@@ -471,8 +471,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "OS2 Nginx Security Monitoring Dashboard",
-  "uid": "os2-nginx-security",
+  "title": "OS2 Apache Security Monitoring Dashboard",
+  "uid": "os2-apache-security",
   "version": 1,
   "weekStart": ""
 }

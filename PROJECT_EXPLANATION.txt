@@ -7,10 +7,10 @@ This project demonstrates a simple DevOps and monitoring pipeline for an Operati
 
 The architecture is intentionally simple and explainable:
 
-Traffic Generator -> Nginx Reverse Proxy -> Flask Web Apps
+Traffic Generator -> Apache Reverse Proxy -> Flask Web Apps
                                 |
                                 v
-                         Shared Nginx Log Volume
+                        Shared Apache Log Volume
                                 |
                                 v
                   Rule-Based Python Log Classifier
@@ -24,67 +24,70 @@ Traffic Generator -> Nginx Reverse Proxy -> Flask Web Apps
 
 Main Components
 ---------------
-1. Nginx Reverse Proxy
+1. Apache Reverse Proxy
 
-Nginx is the entry point for all client traffic. It listens on HTTP port 80 and HTTPS port 443. The HTTPS server uses a self-signed certificate stored in ./certs/server.crt and ./certs/server.key. These files are mounted into the container as read-only files.
+Apache (httpd) is the entry point for all client traffic. It listens on HTTP port 80 and HTTPS port 443. The HTTPS virtual host uses mod_ssl with a self-signed certificate stored in ./certs/server.crt and ./certs/server.key. These files are mounted into the container as read-only files.
 
-Nginx forwards normal requests to two Flask application containers using an upstream block:
+Apache forwards normal requests to two Flask application containers using mod_proxy and a mod_proxy_balancer balancer group:
 
-- web-app-1:5000
-- web-app-2:5000
+<Proxy "balancer://flask_backend">
+    BalancerMember "http://web-app-1:5000"
+    BalancerMember "http://web-app-2:5000"
+    ProxySet lbmethod=byrequests
+</Proxy>
 
-Because both servers are listed in the upstream group without a special balancing method, Nginx uses its default round-robin load balancing. This means requests are distributed between the two Flask apps, demonstrating basic load balancing.
+The byrequests load-balancing method distributes requests evenly between the two members (round-robin by request count). This means requests alternate between the two Flask apps, demonstrating basic load balancing. ProxyPreserveHost and X-Forwarded-* headers keep the backend requests well-formed.
+
+The Apache image is built from Dockerfile.apache: it is the official Debian image plus the apache2 and libapache2-mod-security2 packages, with the needed modules enabled (proxy, proxy_http, proxy_balancer, lbmethod_byrequests, ssl, headers, security2).
 
 
 2. Rate Limiting and DDoS Simulation
 
-The Nginx configuration defines a rate-limit zone:
+Stock Apache has no request-rate limiter that can answer 429, so the project uses ModSecurity (mod_security2), the standard Apache web application firewall module. Two rules in apache.conf implement a per-client-IP leaky bucket:
 
-limit_req_zone $binary_remote_addr zone=per_ip:10m rate=5r/s;
+SecAction "id:1001,phase:1,nolog,pass,initcol:ip=%{REMOTE_ADDR},setvar:ip.requests=+1,deprecatevar:ip.requests=5/1"
+SecRule IP:REQUESTS "@gt 15" "id:1002,phase:1,nolog,deny,status:429"
 
-This means each client IP address is allowed around 5 requests per second. In the main location block, Nginx applies:
+The first rule opens a persistent per-IP collection, increments a request counter on every request, and lets the counter decay by 5 every second (the allowed steady rate of about 5 requests per second). The second rule rejects a request with HTTP 429 Too Many Requests as soon as the counter exceeds 15 (the allowed burst headroom). This is used as the project's simulated DDoS indicator.
 
-limit_req zone=per_ip burst=10 nodelay;
-limit_req_status 429;
-
-The burst value allows short spikes, but once the limit and burst are exceeded, Nginx immediately returns HTTP 429 Too Many Requests. This is used as the project's simulated DDoS indicator.
-
-The traffic_generator.py script creates many concurrent HTTP requests using Python threads. When the traffic exceeds the Nginx rate limit, Nginx returns 429 responses. The script prints the status-code counts and clearly reports whether the simulation successfully triggered rate limiting.
+The traffic_generator.py script creates many concurrent HTTP requests using Python threads. When the traffic exceeds the Apache rate limit, Apache returns 429 responses. The script prints the status-code counts and clearly reports whether the simulation successfully triggered rate limiting.
 
 
 3. Flask Web Applications
 
-There are two identical Flask web app containers. Each container returns its configured APP_NAME and hostname for normal requests. This makes it easy to show that Nginx is load balancing between two backend services.
+There are two identical Flask web app containers. Each container returns its configured APP_NAME and hostname for normal requests. This makes it easy to show that Apache is load balancing between two backend services.
 
 The Flask app also exposes a test /error route that returns HTTP 500. This is useful for demonstrating operational error classification.
+
+Apache itself produces the security events: /unauthorized is protected with Basic authentication that no user can satisfy (a real 401 challenge), and /forbidden is denied with "Require all denied" (a real 403).
 
 
 4. JSON Access Logs
 
-Nginx writes access logs in JSON format to:
+Apache writes access logs in JSON format (a custom LogFormat named json_combined) to:
 
-/var/log/nginx/access.log
+/var/log/apache2/access.log
 
-This log file is stored in a named Docker volume called nginx-logs. The Nginx container writes to the volume, and the log-classifier container mounts the same volume as read-only.
+This log file is stored in a named Docker volume called apache-logs. The Apache container writes to the volume, and the log-classifier container mounts the same volume as read-only.
 
 JSON logging makes the classifier reliable and easy to explain. Instead of parsing unstructured log text, the classifier reads each log line as JSON and extracts the HTTP status code.
 
 
 5. Rule-Based Log Classifier
 
-classifier.py is a simple Python service that starts a Prometheus metrics server on port 8000. It tails the shared Nginx access log and applies explicit rules:
+classifier.py is a simple Python service that starts a Prometheus metrics server on port 8000. It tails the shared Apache access log and applies explicit rules:
 
-- HTTP 429 increments nginx_ddos_traffic_total
-- HTTP 401 or 403 increments nginx_security_alerts_total
-- HTTP 500 and above increments nginx_operational_errors_total
-- Each successfully parsed log line increments nginx_log_lines_parsed_total
+- HTTP 429 increments apache_ddos_traffic_total
+- HTTP 401 or 403 increments apache_security_alerts_total
+- HTTP 500 and above increments apache_operational_errors_total
+- Each successfully parsed log line increments apache_log_lines_parsed_total
 
 This is intentionally rule-based. There is no machine learning, training data, or complex dependency. For a university OS2 project, this keeps the logic transparent and easy to defend during a live demo.
 
 
 6. Handling Log Recreation Safely
 
-The classifier is designed to keep working if the Nginx log file is recreated or truncated. This can happen when the Nginx container restarts, because the Compose command removes and recreates access.log and error.log before starting Nginx.
+The classifier is designed to keep working if the Apache log file is recreated or truncated. This can happen when the Apache container restarts, because the Compose command removes and recreates access.log and error.log before starting Apache.
 
 To avoid silently following an old deleted file, the classifier tracks the current log file inode. During its loop, it checks:
 
@@ -99,7 +102,7 @@ If any of these happen, the classifier closes the old file handle, waits for the
 
 Prometheus runs on port 9090. The prometheus.yml file defines a scrape interval of 5 seconds and scrapes:
 
-- log-classifier:8000 for custom Nginx security and operational metrics
+- log-classifier:8000 for custom Apache security and operational metrics
 - cadvisor:8080 for container metrics
 
 The classifier exposes metrics in the Prometheus text format. Prometheus periodically scrapes those values and stores them as time-series data.
@@ -109,9 +112,9 @@ Important demo note: because Prometheus scrapes every 5 seconds, new traffic may
 
 8. cAdvisor Container Metrics
 
-cAdvisor collects resource metrics from Docker containers. Prometheus scrapes cAdvisor and can query metrics such as CPU usage and memory usage for the Nginx container.
+cAdvisor collects resource metrics from Docker containers. Prometheus scrapes cAdvisor and can query metrics such as CPU usage and memory usage for the Apache container.
 
-The Grafana dashboard includes a container metrics panel for os2-nginx using cAdvisor metrics. This shows that the project monitors both application/security events and system/container resource behavior.
+The Grafana dashboard includes a container metrics panel for os2-apache using cAdvisor metrics. This shows that the project monitors both application/security events and system/container resource behavior.
 
 
 9. Grafana Dashboard
@@ -125,10 +128,10 @@ The dashboard.json file can be imported into Grafana. It expects a Prometheus da
 
 The dashboard contains:
 
-- DDoS Traffic panel using nginx_ddos_traffic_total
-- Security Alerts panel using nginx_security_alerts_total
-- Operational Errors panel using nginx_operational_errors_total
-- Nginx container CPU and memory panel using cAdvisor metrics
+- DDoS Traffic panel using apache_ddos_traffic_total
+- Security Alerts panel using apache_security_alerts_total
+- Operational Errors panel using apache_operational_errors_total
+- Apache container CPU and memory panel using cAdvisor metrics
 
 
 Live Demo Flow
@@ -148,13 +151,13 @@ Refresh several times and show that responses come from both web-app-1 and web-a
 http://localhost/unauthorized
 http://localhost/forbidden
 
-These produce HTTP 401 and 403, which increment nginx_security_alerts_total.
+These produce HTTP 401 and 403, which increment apache_security_alerts_total.
 
 4. Trigger operational error:
 
 http://localhost/error
 
-This produces HTTP 500, which increments nginx_operational_errors_total.
+This produces HTTP 500, which increments apache_operational_errors_total.
 
 5. Trigger DDoS/rate-limit simulation:
 
@@ -169,10 +172,10 @@ Grafana: http://localhost:3000
 
 Useful PromQL queries:
 
-nginx_ddos_traffic_total
-increase(nginx_ddos_traffic_total[1m])
-nginx_security_alerts_total
-nginx_operational_errors_total
+apache_ddos_traffic_total
+increase(apache_ddos_traffic_total[1m])
+apache_security_alerts_total
+apache_operational_errors_total
 
 
 Why This Design Is Appropriate
