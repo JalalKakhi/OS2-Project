@@ -15,8 +15,8 @@ def hit(url):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate traffic to trigger Nginx HTTP 429 rate limiting.")
-    parser.add_argument("--url", default="http://localhost/", help="Target URL behind Nginx")
+    parser = argparse.ArgumentParser(description="Generate traffic to trigger Apache HTTP 429 rate limiting.")
+    parser.add_argument("--url", default="http://localhost/", help="Target URL behind Apache")
     parser.add_argument("--requests", type=int, default=200, help="Total number of requests")
     parser.add_argument("--workers", type=int, default=50, help="Concurrent workers")
     args = parser.parse_args()
@@ -32,7 +32,7 @@ def main():
 
     rate_limited = counts.get(429, 0)
     if rate_limited:
-        print(f"SUCCESS: DDoS simulation triggered Nginx rate limiting ({rate_limited} HTTP 429 responses).")
+        print(f"SUCCESS: DDoS simulation triggered Apache rate limiting ({rate_limited} HTTP 429 responses).")
     else:
         print("FAILURE: No HTTP 429 responses were triggered. Increase --requests or --workers and try again.")
 

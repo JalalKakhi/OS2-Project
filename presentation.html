@@ -198,7 +198,7 @@
     }
 
     .client .icon { background: var(--cyan); }
-    .nginx .icon { background: var(--green); }
+    .apache .icon { background: var(--green); }
     .apps .icon { background: #60a5fa; }
     .volume .icon { background: var(--amber); }
     .classifier .icon { background: var(--violet); }
@@ -482,7 +482,7 @@
       <div class="brand">
         <div class="mark">OS2</div>
         <div>
-          <h1>Nginx Security Monitoring Pipeline</h1>
+          <h1>Apache Security Monitoring Pipeline</h1>
           <div class="subtitle">Reverse proxy, rate limiting, rule-based log classification, Prometheus, Grafana, and cAdvisor.</div>
         </div>
       </div>
@@ -499,11 +499,11 @@
             <small>urllib + workers</small>
           </button>
 
-          <button class="node nginx" data-node="nginx">
+          <button class="node apache" data-node="apache">
             <div class="icon">02</div>
-            <h2>Nginx Proxy</h2>
+            <h2>Apache Proxy</h2>
             <p>Terminates HTTP/HTTPS, load balances, and rate limits.</p>
-            <small>5r/s + burst 10</small>
+            <small>ModSecurity: 5r/s, burst 15</small>
           </button>
 
           <button class="node apps" data-node="apps">
@@ -516,8 +516,8 @@
           <button class="node volume" data-node="volume">
             <div class="icon">04</div>
             <h2>Shared Log Volume</h2>
-            <p>Nginx writes JSON access logs to a Docker volume.</p>
-            <small>nginx-logs</small>
+            <p>Apache writes JSON access logs to a Docker volume.</p>
+            <small>apache-logs</small>
           </button>
 
           <button class="node classifier" data-node="classifier">
@@ -538,7 +538,7 @@
 
       <aside class="details">
         <h2 id="detailTitle">Traffic Generator</h2>
-        <p id="detailText">The demo starts with controlled traffic from traffic_generator.py. It creates concurrent requests so Nginx can return HTTP 429 when the rate limit is exceeded.</p>
+        <p id="detailText">The demo starts with controlled traffic from traffic_generator.py. It creates concurrent requests so Apache can return HTTP 429 when the rate limit is exceeded.</p>
         <div class="facts" id="facts"></div>
         <div class="metrics">
           <div class="metric">
@@ -603,20 +603,20 @@
     const nodeData = {
       client: {
         title: "Traffic Generator",
-        text: "traffic_generator.py creates concurrent HTTP requests. During a demo, this is how we intentionally push Nginx above 5 requests per second and prove that rate limiting works.",
+        text: "traffic_generator.py creates concurrent HTTP requests. During a demo, this is how we intentionally push Apache above 5 requests per second and prove that rate limiting works.",
         facts: [
-          ["Input", "http://localhost/ through Nginx"],
+          ["Input", "http://localhost/ through Apache"],
           ["Demo Command", "python traffic_generator.py --requests 200 --workers 50"],
           ["Success Condition", "The script reports HTTP 429 responses"]
         ],
         metrics: ["429", "401", "500"]
       },
-      nginx: {
-        title: "Nginx Reverse Proxy",
-        text: "Nginx is the front door. It serves HTTP and HTTPS, forwards requests to Flask, writes JSON logs, and returns HTTP 429 when one client exceeds the configured rate limit.",
+      apache: {
+        title: "Apache Reverse Proxy",
+        text: "Apache is the front door. It serves HTTP and HTTPS, forwards requests to Flask, writes JSON logs, and returns HTTP 429 when one client exceeds the configured rate limit.",
         facts: [
-          ["Rate Limit", "limit_req_zone rate=5r/s with burst=10 nodelay"],
-          ["Load Balancing", "Default round-robin between web-app-1 and web-app-2"],
+          ["Rate Limit", "ModSecurity per-IP counter: decays 5/s, deny with 429 above 15"],
+          ["Load Balancing", "mod_proxy_balancer byrequests round-robin between web-app-1 and web-app-2"],
           ["SSL", "Uses ./certs/server.crt and ./certs/server.key"]
         ],
         metrics: ["5r/s", "2 apps", "443"]
@@ -633,21 +633,21 @@
       },
       volume: {
         title: "Shared Log Volume",
-        text: "Nginx writes access.log to the nginx-logs named Docker volume. The classifier mounts the same volume read-only, keeping log collection simple and isolated.",
+        text: "Apache writes access.log to the apache-logs named Docker volume. The classifier mounts the same volume read-only, keeping log collection simple and isolated.",
         facts: [
-          ["Writer", "Nginx writes /var/log/nginx/access.log"],
-          ["Reader", "Classifier mounts /var/log/nginx as read-only"],
+          ["Writer", "Apache writes /var/log/apache2/access.log"],
+          ["Reader", "Classifier mounts /var/log/apache2 as read-only"],
           ["Format", "Each access log line is JSON"]
         ],
         metrics: ["JSON", "RO", "RW"]
       },
       classifier: {
         title: "Rule-Based Classifier",
-        text: "The classifier tails Nginx logs, extracts status codes, and increments explicit Prometheus counters. It also reopens the file when Nginx recreates or truncates the log.",
+        text: "The classifier tails Apache logs, extracts status codes, and increments explicit Prometheus counters. It also reopens the file when Apache recreates or truncates the log.",
         facts: [
-          ["DDoS Rule", "HTTP 429 increments nginx_ddos_traffic_total"],
-          ["Security Rule", "HTTP 401/403 increments nginx_security_alerts_total"],
-          ["Ops Rule", "HTTP 500+ increments nginx_operational_errors_total"]
+          ["DDoS Rule", "HTTP 429 increments apache_ddos_traffic_total"],
+          ["Security Rule", "HTTP 401/403 increments apache_security_alerts_total"],
+          ["Ops Rule", "HTTP 500+ increments apache_operational_errors_total"]
         ],
         metrics: ["8000", "inode", "rules"]
       },
@@ -665,19 +665,19 @@
 
     const scenarioData = {
       normal: {
-        text: "$ curl http://localhost/\n{\"app\":\"web-app-1\",\"host\":\"...\"}\n\n$ curl http://localhost/\n{\"app\":\"web-app-2\",\"host\":\"...\"}\n\nResult: Nginx distributes traffic across both Flask apps.",
+        text: "$ curl http://localhost/\n{\"app\":\"web-app-1\",\"host\":\"...\"}\n\n$ curl http://localhost/\n{\"app\":\"web-app-2\",\"host\":\"...\"}\n\nResult: Apache distributes traffic across both Flask apps.",
         values: [35, 0, 10, 70]
       },
       ddos: {
-        text: "$ python traffic_generator.py --requests 200 --workers 50\nStatus code counts:\n200: 18\n429: 182\nSUCCESS: DDoS simulation triggered Nginx rate limiting.\n\nPrometheus metric: nginx_ddos_traffic_total increases.",
+        text: "$ python traffic_generator.py --requests 200 --workers 50\nStatus code counts:\n200: 18\n429: 182\nSUCCESS: DDoS simulation triggered Apache rate limiting.\n\nPrometheus metric: apache_ddos_traffic_total increases.",
         values: [98, 92, 40, 88]
       },
       security: {
-        text: "$ curl http://localhost/unauthorized\nHTTP/1.1 401 Unauthorized\n\n$ curl http://localhost/forbidden\nHTTP/1.1 403 Forbidden\n\nPrometheus metric: nginx_security_alerts_total increases.",
+        text: "$ curl http://localhost/unauthorized\nHTTP/1.1 401 Unauthorized\n\n$ curl http://localhost/forbidden\nHTTP/1.1 403 Forbidden\n\nPrometheus metric: apache_security_alerts_total increases.",
         values: [42, 0, 76, 82]
       },
       ops: {
-        text: "$ curl http://localhost/error\nHTTP/1.1 500 Internal Server Error\n\nClassifier rule: status >= 500\nPrometheus metric: nginx_operational_errors_total increases.",
+        text: "$ curl http://localhost/error\nHTTP/1.1 500 Internal Server Error\n\nClassifier rule: status >= 500\nPrometheus metric: apache_operational_errors_total increases.",
         values: [40, 0, 55, 84]
       }
     };
@@ -739,9 +739,9 @@
       const stage = document.getElementById("stage");
       const stageBox = stage.getBoundingClientRect();
       const pairs = [
-        ["client", "nginx"],
-        ["nginx", "apps"],
-        ["nginx", "volume"],
+        ["client", "apache"],
+        ["apache", "apps"],
+        ["apache", "volume"],
         ["volume", "classifier"],
         ["classifier", "monitor"]
       ];
