@@ -1,17 +1,12 @@
 FROM debian:bookworm-slim
 
-# Apache plus ModSecurity; mod_security2 provides the per-IP rate limiting
-# that returns HTTP 429 during the DDoS simulation.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends apache2 libapache2-mod-security2 && \
     rm -rf /var/lib/apt/lists/*
 
-# The packaged ModSecurity default is DetectionOnly; turn the engine on so the
-# rate-limit rules actually block requests.
 RUN cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf && \
     sed -i 's/^SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf
 
-# Reverse proxy, load balancing, SSL termination, header rewriting, ModSecurity.
 RUN a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests ssl headers security2 && \
     a2dissite 000-default && \
     echo "ServerName localhost" > /etc/apache2/conf-available/servername.conf && \
