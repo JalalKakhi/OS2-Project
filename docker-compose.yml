@@ -47,6 +47,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=AIzaSyCcZfHRbfz1Eq3XldqN49N5LODGGVUZsIc
+      - GEMINI_MODEL=gemini-2.5-flash
     volumes:
       - apache-logs:/var/log/apache2:ro
     depends_on:

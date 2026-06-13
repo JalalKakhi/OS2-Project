@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# Playwright / tooling artifacts
+.playwright-mcp/
+
+# Project report (not part of the deliverable codebase)
+report/
