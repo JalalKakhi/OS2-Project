@@ -1,4 +1,0 @@
-Run this command from the project root to generate the self-signed SSL files used by nginx.conf.
-The project already expects these exact output paths: ./certs/server.key and ./certs/server.crt.
-
-mkdir -p certs && openssl req -x509 -nodes -newkey rsa:2048 -days 365 -keyout certs/server.key -out certs/server.crt -subj "/C=JO/ST=Amman/L=Amman/O=OS2 University Project/OU=Demo/CN=localhost"

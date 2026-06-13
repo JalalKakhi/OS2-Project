@@ -2,11 +2,13 @@ import argparse
 import concurrent.futures
 import urllib.error
 import urllib.request
+import ssl
 
 
 def hit(url):
     try:
-        with urllib.request.urlopen(url, timeout=3) as response:
+        context = ssl._create_unverified_context()
+        with urllib.request.urlopen(url, timeout=3 , context=context) as response:
             return response.status
     except urllib.error.HTTPError as error:
         return error.code
